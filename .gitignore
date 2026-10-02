@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.pac
+*.tar.gz
+/OmegaOptions.bak
+/native.json
+/overrides.json
+/tests/.run/

@@ -1,0 +1,7 @@
+{
+  "source": "/path/to/OmegaOptions.bak",
+  "profile": "auto switch",
+  "proxy": "socks5://127.0.0.1:your-port",
+  "overrides": "~/.config/qute-switchy/overrides.json",
+  "pac": "~/.config/qute-switchy/proxy.pac"
+}
