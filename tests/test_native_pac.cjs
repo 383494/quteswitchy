@@ -27,8 +27,8 @@ function options() {
                                  match('UrlWildcardCondition', 'http://path.example/proxied*', 'proxy'),
                              ]}};
 }
-function resolver(input, overrides = []) {
-    const result = compile(input, {profile: 'auto switch', proxy: 'socks5://127.0.0.1:1080', overrides});
+function resolver(input, temporaryRules = []) {
+    const result = compile(input, {profile: 'auto switch', proxy: 'socks5://127.0.0.1:1080', temporaryRules});
     const context = vm.createContext({});
     vm.runInContext(result.script, context);
     return url => context.FindProxyForURL(url, new URL(url).hostname);
@@ -57,12 +57,27 @@ test('per-scheme proxies in other imported profiles stay intact', () => {
     assert.equal(decide('https://scheme.example/'), 'HTTPS https.invalid:8443');
 });
 
-test('local overrides take precedence and include subdomains, not lookalikes', () => {
-    const decide = resolver(options(), [{domain: 'forced.example', profile: 'direct'},
-                                       {domain: 'local.example', profile: 'proxy'}]);
+test('temporary choices take precedence and include subdomains, not lookalikes', () => {
+    const input = options();
+    const before = structuredClone(input);
+    const decide = resolver(input, [{domain: 'forced.example', profile: 'direct', subdomains: true},
+                                   {domain: 'local.example', profile: 'proxy', subdomains: true}]);
     assert.equal(decide('http://forced.example/'), 'DIRECT');
     assert.equal(decide('https://local.example/'), socks);
     assert.equal(decide('https://sub.local.example/'), socks);
     assert.equal(decide('https://notlocal.example/'), 'DIRECT');
     assert.equal(decide('https://local.example.evil/'), 'DIRECT');
+    assert.deepEqual(input, before);
+});
+
+test('most recent temporary match wins and removing it restores the earlier choice', () => {
+    const broad = {domain: 'scope.example', profile: 'proxy', subdomains: true};
+    const exact = {domain: 'child.scope.example', profile: 'direct', subdomains: false};
+    const decide = resolver(options(), [broad, exact]);
+    assert.equal(decide('https://child.scope.example/'), 'DIRECT');
+    assert.equal(decide('https://deep.child.scope.example/'), socks);
+    assert.equal(decide('https://scope.example/'), socks);
+    assert.equal(resolver(options(), [broad])('https://child.scope.example/'), socks);
+    assert.equal(resolver(options())('https://child.scope.example/'), 'DIRECT');
+    assert.equal(resolver(options(), [exact, broad])('https://child.scope.example/'), socks);
 });

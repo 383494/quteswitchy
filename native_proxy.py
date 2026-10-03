@@ -7,31 +7,47 @@ PAC preference take precedence. This is a private qutebrowser hook, not a
 supported extension API; verify it after qutebrowser/Qt upgrades.
 """
 
+import importlib.util
 import json
 import os
 from pathlib import Path
-import subprocess
-
+import sys
 from qutebrowser.browser.network import proxy as _proxy
 from qutebrowser.qt.network import QNetworkProxyFactory
+from qutebrowser.utils import objreg
 
 _native_dir = Path(__file__).resolve().parent
 _settings_path = Path(os.environ.get(
     "QUTE_OMEGA_SETTINGS", str(Path.home() / ".config/qute-switchy/native.json")))
 _settings = json.loads(_settings_path.read_text(encoding="utf-8"))
-_pac = Path(_settings["pac"]).expanduser().resolve()
+if "overrides" in _settings:
+    raise RuntimeError(
+        "Migrate website rules first: node "
+        + str(_native_dir / "omega_native.cjs")
+        + " --migrate-settings " + str(_settings_path))
 
-# Compile on startup so edits to the backup or overrides take effect on restart.
-# A compiler failure stops this config section instead of using a stale PAC.
-subprocess.run(
-    ["node", str(_native_dir / "omega_native.cjs"),
-     "--source", str(Path(_settings["source"]).expanduser()),
-     "--profile", _settings["profile"],
-     "--proxy", _settings["proxy"],
-     "--overrides", str(Path(_settings["overrides"]).expanduser()),
-     "--output", str(_pac)],
-    check=True,
-)
+# qutebrowser removes newly imported modules from sys.modules after reading
+# config.py. Retain the UI in its registry so re-sourcing cannot register commands
+# twice. Widgets are created only by commands, after QApplication exists.
+_ui = objreg.get("quteswitchy-ui", default=None)
+if _ui is None:
+    _module_name = "_quteswitchy_ui"
+    _spec = importlib.util.spec_from_file_location(
+        _module_name, _native_dir / "switchy_ui.py")
+    _ui = importlib.util.module_from_spec(_spec)
+    sys.modules[_module_name] = _ui
+    try:
+        _spec.loader.exec_module(_ui)
+    except Exception:
+        sys.modules.pop(_module_name, None)
+        raise
+    objreg.register("quteswitchy-ui", _ui)
+_controller = _ui.install(_native_dir, _settings)
+_pac = _controller.pac
+
+# Do not replace an existing user binding.
+if ",s" not in c.bindings.commands.get("normal", {}):
+    config.bind(",s", "switchy-menu")
 
 
 def _native_proxy_init():
